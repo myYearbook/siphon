@@ -31,11 +31,6 @@ import threading
 import time
 import yaml
 
-try:
-    import simplejson as json
-except ImportError:
-    import json
-    
 threads = []
 
 class AMQP:
@@ -60,7 +55,6 @@ class AMQP:
             
             # Split the queue name up into parameters
             parameters = self.get_exchange_queue_and_routing_key( queue )    
-            logging.debug(json.dumps(parameters))            
         
             # Create our queue if it doesn't exist        
             logging.debug( 'Creating AMQP Queue "%s"' % parameters['queue'] )

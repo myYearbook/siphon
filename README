@@ -22,7 +22,6 @@ External Requirements
 amqplib
 pyyaml
 stomp.py
-In Python 2.5: simplejson
 
 Known Issues
 ============
