@@ -2,9 +2,9 @@ Siphon is a daemon to requeue messages from ActiveMQ and put them into RabbitMQ.
 
 In managing a migration project to move off of ActiveMQ we found we needed to use 
 our RabbitMQ consumers and code prior to our ability to move our code that publishes 
-into the queues.  This allows us to transparently move to the new backend consumer
+into the queues.  Siphon allows us to transparently move to the new backend consumer
 code while maintaining a reasonable quality of service until we can move fully off
-of ActiveMQ.
+of publishing to ActiveMQ.
 
 Our queues in ActiveMQ are named with a namespacing pattern that matches up to RabbitMQ's
 exchanges pretty well.  As such we transparently break stuff apart to build our
