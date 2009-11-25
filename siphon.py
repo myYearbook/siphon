@@ -330,18 +330,18 @@ def main():
     signal.signal(signal.SIGTERM, shutdown)
 
     # Loop through our config and kick off all of our threads
-    for siphon_entry in config['Siphon']:
+    for broker in config['Siphon']['stomp']['brokers']:
     
-        for broker in config['Siphon'][siphon_entry]['stomp']['brokers']:
-            # Break out the host and port
-            host, port = broker.split(':')
-        
-            for y in xrange(0, config['Siphon'][siphon_entry]['stomp']['threads_per_broker']):
-                logging.debug( 'Kicking off thread #%i for %s:%s:%s' % ( y, host, port, siphon_entry ) )
-                
-                new_thread = SiphonThread( config['Siphon'][siphon_entry], (host,int(port)) )
-                threads.append(new_thread)
-                new_thread.start()
+        # Break out the host and port
+        host, port = broker.split(':')
+    
+        # Kick of the number of threads per broker
+        for y in xrange(0, config['Siphon']['stomp']['threads_per_broker']):
+            logging.debug( 'Kicking off thread #%i for %s:%s' % ( y, host, port ) )
+            
+            new_thread = SiphonThread( config['Siphon'], ( host, int(port) ) )
+            threads.append( new_thread )
+            new_thread.start()
     
     # Loop until someone wants us to stop
     while 1:
