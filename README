@@ -1,5 +1,3 @@
-Siphon.py
-=========
 Siphon is a daemon to requeue messages from ActiveMQ and put them into RabbitMQ.
 
 In managing a migration project to move off of ActiveMQ we found we needed to use 
