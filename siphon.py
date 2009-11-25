@@ -21,7 +21,6 @@ __date__    = "2009-11-25"
 __version__ = 0.1
 
 import amqplib.client_0_8 as amqp
-import json
 import logging
 import optparse
 import os
@@ -32,6 +31,11 @@ import threading
 import time
 import yaml
 
+try:
+    import simplejson as json
+except ImportError:
+    import json
+    
 threads = []
 
 class AMQP:
