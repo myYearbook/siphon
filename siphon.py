@@ -18,7 +18,7 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
 __author__  = "Gavin M. Roy"
 __email__   = "gmr@myyearbook.com"
 __date__    = "2009-11-25"
-__version__ = 0.1
+__version__ = 0.2
 
 import amqplib.client_0_8 as amqp
 import logging
@@ -42,12 +42,12 @@ class AMQP:
     
         # Connect to RabbitMQ
         self.connection = amqp.Connection( host ='%s:%s' % 
-                                ( self.config['amqp']['connection']['host'], 
-                                  self.config['amqp']['connection']['port'] ),
-                                userid = self.config['amqp']['connection']['user'], 
-                                password = self.config['amqp']['connection']['pass'], 
-                                ssl = self.config['amqp']['connection']['ssl'],
-                                virtual_host = self.config['amqp']['connection']['vhost'] )
+                                           ( self.config['amqp']['connection']['host'], 
+                                             self.config['amqp']['connection']['port'] ),
+                                           userid = self.config['amqp']['connection']['user'], 
+                                           password = self.config['amqp']['connection']['pass'], 
+                                           ssl = self.config['amqp']['connection']['ssl'],
+                                           virtual_host = self.config['amqp']['connection']['vhost'] )
 
         # Create our channel
         self.channel = self.connection.channel()
@@ -100,8 +100,15 @@ class AMQP:
 
         # Create our new message to send to RabbitMQ
         logging.debug( 'AMQP publishing to routing_key: "%s"' % parameters['routing_key'] )
+        
+        if self.config['compress']:
+            stomp_message = zlib.compress(stomp_message, self.config['compression_level'])
+        
         message = amqp.Message( stomp_message )
-        message.properties["delivery_mode"] = 2
+        
+        if self.config['delivery_mode'] > 0:
+            message.properties["delivery_mode"] = self.config['delivery_mode']
+
         self.channel.basic_publish( message,
                                     exchange = parameters['exchange'],
                                     routing_key = parameters['routing_key'] ) 
@@ -120,12 +127,18 @@ class SiphonThread( threading.Thread ):
         self.config = config
         self.shutting_down = False
         self.stomp_connect_tuple = stomp_connection
+
+        self.listener = None
+        self.stomp_connection = None
        
         # Init the Thread Object itself
         threading.Thread.__init__(self)        
-                
-    def run(self):
 
+    def connect(self):
+
+        self.stomp_connection = None
+        self.listener = None
+        
         # Create our stomp connection
         logging.debug('Connecting to %s:%i' % self.stomp_connect_tuple)
         self.stomp_connection = stomp.Connection( [ self.stomp_connect_tuple ],
@@ -143,14 +156,31 @@ class SiphonThread( threading.Thread ):
 
         # Provision our callback function
         self.stomp_connection.set_listener('', self.listener )
-                
+            
         # Subscribe to the queues we want to dequeue from
         for queue in self.config['stomp']['queues']:
-            self.stomp_connection.subscribe( destination = queue, ack = 'auto' )
+            logging.debug('Subscribing to %s' % queue)
+            self.stomp_connection.subscribe( destination = queue, headers = { 'ack': 'auto', 
+                                                                              'activemq.dispatchAsync': 'true', 
+                                                                              'activemq.prefetchSize': 1
+                                                                            } )
+                
+    def run(self):
+
+        # Connect to our brokers    
+        self.connect()
 
         # Loop while the thread is running
         while not self.shutting_down:
             time.sleep(1)
+            
+            # If we disconnect
+            if not self.stomp_connection.is_connected():
+
+                logging.debug( 'Lost stomp connection to  %s:%i' % self.stomp_connect_tuple )
+                time.sleep(1)
+                self.connect()
+
 
     def shutdown(self):
 
@@ -187,7 +217,7 @@ class StompListener(stomp.ConnectionListener):
         
     def on_message(self, headers, message):
         # Publish the message received to AMQP
-        logging.debug( 'Received: %s' % headers['message-id'] )
+        # logging.debug( 'Received: %s' % headers['message-id'] )
         self.amqp.publish(headers, message)
         self.messages += 1
         
@@ -273,8 +303,8 @@ def main():
         # Build a specific path to our log file
         if config['Logging'].has_key('filename'):
             config['Logging']['filename'] = "%s/logs/%s" % ( 
-                os.path.dirname(__file__), 
-                config['Logging']['filename'] )
+                                            os.path.dirname(__file__), 
+                                            config['Logging']['filename'] )
         
     # Pass in our logging config 
     logging.basicConfig(**config['Logging'])
@@ -296,7 +326,7 @@ def main():
             pid = os.fork() 
             if pid > 0:
                 # exit from second parent, print eventual PID before
-                print 'rejected.py daemon has started - PID # %d.' % pid
+                print 'siphon.py daemon has started - PID # %d.' % pid
                 logging.info('Child forked as PID # %d' % pid)
                 sys.exit(0) 
         except OSError, e: 
@@ -316,12 +346,14 @@ def main():
         
         # Redirect stdout, stderr
         sys.stdout = open(os.path.join(os.path.dirname(__file__), 
-            config['Location']['logs'], "stdout.log"), 'w')
+                                       'logs/', "stdout.log"), 'w')
         sys.stderr = open(os.path.join(os.path.dirname(__file__), 
-            config['Location']['logs'], "stderr.log"), 'w')
+                                       'logs/', "stderr.log"), 'w')
                                                  
     # Set our signal handler so we can gracefully shutdown
     signal.signal(signal.SIGTERM, shutdown)
+
+    brokers = []
 
     # Loop through our config and kick off all of our threads
     for broker in config['Siphon']['stomp']['brokers']:
@@ -329,12 +361,15 @@ def main():
         # Break out the host and port
         host, port = broker.split(':')
     
+        broker_dict = { 'broker': broker }
+        broker_dict['threads'] = []
+    
         # Kick of the number of threads per broker
         for y in xrange(0, config['Siphon']['stomp']['threads_per_broker']):
             logging.debug( 'Kicking off thread #%i for %s:%s' % ( y, host, port ) )
             
             new_thread = SiphonThread( config['Siphon'], ( host, int(port) ) )
-            threads.append( new_thread )
+            broker_dict['threads'].append( new_thread )
             new_thread.start()
     
     # Loop until someone wants us to stop
@@ -344,12 +379,6 @@ def main():
                 
             # Sleep is so much more CPU friendly than pass
             time.sleep(1)
-
-            # If we don't have any running threads, end
-            if not len(threads):
-            
-                logging.debug('All threads are gone, exiting')
-                sys.exit(0)
         
         except (KeyboardInterrupt, SystemExit):
             # The user has sent a kill or ctrl-c
