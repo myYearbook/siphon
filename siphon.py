@@ -30,6 +30,7 @@ import sys
 import threading
 import time
 import yaml
+import zlib
 
 threads = []
 
