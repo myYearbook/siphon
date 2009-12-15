@@ -102,13 +102,16 @@ class AMQP:
         # Create our new message to send to RabbitMQ
         logging.debug( 'AMQP publishing to routing_key: "%s"' % parameters['routing_key'] )
         
-        if self.config['compress']:
-            stomp_message = zlib.compress(stomp_message, self.config['compression_level'])
+        print self.config
+        if self.config['amqp']['compress']:
+            logging.debug( 'Before: %i bytes' % len(stomp_message) )
+            stomp_message = zlib.compress(stomp_message, self.config['amqp']['compression_level'])
+            logging.debug( 'After: %i bytes' % len(stomp_message) )
         
         message = amqp.Message( stomp_message )
         
-        if self.config['delivery_mode'] > 0:
-            message.properties["delivery_mode"] = self.config['delivery_mode']
+        if self.config['amqp']['delivery_mode'] > 0:
+            message.properties["delivery_mode"] = self.config['amqp']['delivery_mode']
 
         self.channel.basic_publish( message,
                                     exchange = parameters['exchange'],
