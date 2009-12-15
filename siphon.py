@@ -102,7 +102,7 @@ class AMQP:
         # Create our new message to send to RabbitMQ
         logging.debug( 'AMQP publishing to routing_key: "%s"' % parameters['routing_key'] )
         
-        print self.config
+        # If we have compression turned on, compress the message.  This is the counter to compressed in rejected.py
         if self.config['amqp']['compress']:
             logging.debug( 'Before: %i bytes' % len(stomp_message) )
             stomp_message = zlib.compress(stomp_message, self.config['amqp']['compression_level'])
