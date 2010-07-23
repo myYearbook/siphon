@@ -36,10 +36,11 @@ threads = []
 
 class AMQP:
 
-    def __init__(self, config):
+    def __init__(self, config, options):
     
         # Carry the config in the object
         self.config = config
+        self.options = options
     
         # Connect to RabbitMQ
         self.connection = amqp.Connection( host ='%s:%s' % 
@@ -99,6 +100,11 @@ class AMQP:
         # Get the exchange and binding key
         parameters = self.get_exchange_queue_and_routing_key( stomp_header['destination'] )
 
+        if self.options.noop is True:
+            # Create our new message to send to RabbitMQ
+            logging.debug( 'Discarding message due to noop cli flag.')
+            return        
+
         # Create our new message to send to RabbitMQ
         logging.debug( 'AMQP publishing to routing_key: "%s"' % parameters['routing_key'] )
         
@@ -125,10 +131,11 @@ class AMQP:
 
 class SiphonThread( threading.Thread ):
 
-    def __init__(self, config, stomp_connection):
+    def __init__(self, config, options, stomp_connection):
 
         # Set our internal variables    
         self.config = config
+        self.options = options
         self.shutting_down = False
         self.stomp_connect_tuple = stomp_connection
 
@@ -156,7 +163,7 @@ class SiphonThread( threading.Thread ):
         self.stomp_connection.connect( wait = True )
 
         # Create our listener object
-        self.listener = StompListener( self.config )
+        self.listener = StompListener( self.config, self.options )
 
         # Provision our callback function
         self.stomp_connection.set_listener('', self.listener )
@@ -202,9 +209,9 @@ class SiphonThread( threading.Thread ):
 
 class StompListener(stomp.ConnectionListener):
 
-    def __init__(self, config):
+    def __init__(self, config, options):
         # Init our AMQP connection
-        self.amqp = AMQP(config)
+        self.amqp = AMQP(config, options)
         
         # Counters for stats
         self.errors = 0
@@ -260,6 +267,10 @@ def main():
     parser.add_option("-d", "--detached",
                      action="store_true", dest="detached", default=False,
                      help="Run as a daemon detached from the console.")
+                     
+    parser.add_option("-n", "--null",
+                     action="store_true", dest="noop", default=False,
+                     help="Do not enqueue messages, just discard them.")
     
     parser.add_option("-v", "--verbose",
                      action="store_true", dest="verbose", default=False,
@@ -372,7 +383,7 @@ def main():
         for y in xrange(0, config['Siphon']['stomp']['threads_per_broker']):
             logging.debug( 'Kicking off thread #%i for %s:%s' % ( y, host, port ) )
             
-            new_thread = SiphonThread( config['Siphon'], ( host, int(port) ) )
+            new_thread = SiphonThread( config['Siphon'], options, ( host, int(port) ) )
             broker_dict['threads'].append( new_thread )
             new_thread.start()
     
