@@ -268,7 +268,7 @@ def main():
                      action="store_true", dest="detached", default=False,
                      help="Run as a daemon detached from the console.")
                      
-    parser.add_option("-n", "--null",
+    parser.add_option("-n", "--noop",
                      action="store_true", dest="noop", default=False,
                      help="Do not enqueue messages, just discard them.")
     
