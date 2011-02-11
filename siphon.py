@@ -36,42 +36,45 @@ threads = []
 
 class AMQP:
 
-    def __init__(self, config):
+    def __init__(self, config, options):
     
         # Carry the config in the object
         self.config = config
+        self.options = options
     
         # Connect to RabbitMQ
-        self.connection = amqp.Connection( host ='%s:%s' % 
-                                           ( self.config['amqp']['connection']['host'], 
-                                             self.config['amqp']['connection']['port'] ),
-                                           userid = self.config['amqp']['connection']['user'], 
-                                           password = self.config['amqp']['connection']['pass'], 
-                                           ssl = self.config['amqp']['connection']['ssl'],
-                                           virtual_host = self.config['amqp']['connection']['vhost'] )
+        if not options.noop:
+            self.connection = amqp.Connection( host ='%s:%s' % 
+                                               ( self.config['amqp']['connection']['host'], 
+                                                 self.config['amqp']['connection']['port'] ),
+                                                 userid = self.config['amqp']['connection']['user'], 
+                                                 password = self.config['amqp']['connection']['pass'], 
+                                                 ssl = self.config['amqp']['connection']['ssl'],
+                                                 virtual_host = self.config['amqp']['connection']['vhost'] )
 
         # Create our channel
-        self.channel = self.connection.channel()
-        for queue in self.config['stomp']['queues']:
+        if not options.noop:
+            self.channel = self.connection.channel()
+            for queue in self.config['stomp']['queues']:
             
-            # Split the queue name up into parameters
-            parameters = self.get_exchange_queue_and_routing_key( queue )    
+                # Split the queue name up into parameters
+                parameters = self.get_exchange_queue_and_routing_key( queue )    
         
-            # Create our queue if it doesn't exist        
-            logging.debug( 'Creating AMQP Queue "%s"' % parameters['queue'] )
-            self.channel.queue_declare( queue = parameters['queue'], 
-                                        durable = True, exclusive = False, auto_delete = False )
+                # Create our queue if it doesn't exist        
+                logging.debug( 'Creating AMQP Queue "%s"' % parameters['queue'] )
+                self.channel.queue_declare( queue = parameters['queue'], 
+                                            durable = True, exclusive = False, auto_delete = False )
  
-            # Create / Connect to the Exchange
-            logging.debug( 'Creating exchange "%s"' % parameters['exchange'] )
-            self.channel.exchange_declare( exchange = parameters['exchange'], 
-                                           type = 'direct', durable =  True, auto_delete = False )
+                # Create / Connect to the Exchange
+                logging.debug( 'Creating exchange "%s"' % parameters['exchange'] )
+                self.channel.exchange_declare( exchange = parameters['exchange'], 
+                                               type = 'direct', durable =  True, auto_delete = False )
      
-            # Bind to the Queue / Exchange to the routing key we will use
-            logging.debug( 'Creating routing key "%s"' % parameters['routing_key'] )
-            self.channel.queue_bind( queue = parameters['queue'], 
-                                     exchange =  parameters['exchange'], 
-                                     routing_key = parameters['routing_key'] )
+                # Bind to the Queue / Exchange to the routing key we will use
+                logging.debug( 'Creating routing key "%s"' % parameters['routing_key'] )
+                self.channel.queue_bind( queue = parameters['queue'], 
+                                         exchange =  parameters['exchange'], 
+                                         routing_key = parameters['routing_key'] )
 
     def get_exchange_queue_and_routing_key(self, stomp_queue):
     
@@ -99,10 +102,15 @@ class AMQP:
         # Get the exchange and binding key
         parameters = self.get_exchange_queue_and_routing_key( stomp_header['destination'] )
 
+        if self.options.noop:
+            # Create our new message to send to RabbitMQ
+            logging.debug( 'Discarding message due to noop cli flag.')
+            return        
+
         # Create our new message to send to RabbitMQ
         logging.debug( 'AMQP publishing to routing_key: "%s"' % parameters['routing_key'] )
         
-        print self.config
+        # If we have compression turned on, compress the message.  This is the counter to compressed in rejected.py
         if self.config['amqp']['compress']:
             logging.debug( 'Before: %i bytes' % len(stomp_message) )
             stomp_message = zlib.compress(stomp_message, self.config['amqp']['compression_level'])
@@ -125,10 +133,11 @@ class AMQP:
 
 class SiphonThread( threading.Thread ):
 
-    def __init__(self, config, stomp_connection):
+    def __init__(self, config, options, stomp_connection):
 
         # Set our internal variables    
         self.config = config
+        self.options = options
         self.shutting_down = False
         self.stomp_connect_tuple = stomp_connection
 
@@ -156,7 +165,7 @@ class SiphonThread( threading.Thread ):
         self.stomp_connection.connect( wait = True )
 
         # Create our listener object
-        self.listener = StompListener( self.config )
+        self.listener = StompListener( self.config, self.options )
 
         # Provision our callback function
         self.stomp_connection.set_listener('', self.listener )
@@ -202,9 +211,9 @@ class SiphonThread( threading.Thread ):
 
 class StompListener(stomp.ConnectionListener):
 
-    def __init__(self, config):
+    def __init__(self, config, options):
         # Init our AMQP connection
-        self.amqp = AMQP(config)
+        self.amqp = AMQP(config, options)
         
         # Counters for stats
         self.errors = 0
@@ -260,6 +269,10 @@ def main():
     parser.add_option("-d", "--detached",
                      action="store_true", dest="detached", default=False,
                      help="Run as a daemon detached from the console.")
+                     
+    parser.add_option("-n", "--noop",
+                     action="store_true", dest="noop", default=False,
+                     help="Do not enqueue messages, just discard them.")
     
     parser.add_option("-v", "--verbose",
                      action="store_true", dest="verbose", default=False,
@@ -372,7 +385,7 @@ def main():
         for y in xrange(0, config['Siphon']['stomp']['threads_per_broker']):
             logging.debug( 'Kicking off thread #%i for %s:%s' % ( y, host, port ) )
             
-            new_thread = SiphonThread( config['Siphon'], ( host, int(port) ) )
+            new_thread = SiphonThread( config['Siphon'], options, ( host, int(port) ) )
             broker_dict['threads'].append( new_thread )
             new_thread.start()
     
